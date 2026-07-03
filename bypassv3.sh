@@ -12,7 +12,7 @@ warn() { echo -e "${YEL}WARNING: $1${NC}"; }
 success() { echo -e "${GRN}✓ $1${NC}"; }
 info() { echo -e "${BLU}ℹ $1${NC}"; }
 
-# Find available UID (Corregido: ahora recibe la ruta explícitamente)
+# Find available UID (Recibe la ruta explícitamente)
 find_available_uid() {
 	local dscl_path="$1"
 	local uid=501
@@ -27,7 +27,7 @@ find_available_uid() {
 	return 1
 }
 
-# Function to detect system volumes (Tu lógica original que funciona perfecto)
+# Function to detect system volumes
 detect_volumes() {
 	local system_vol=""
 	local data_vol=""
@@ -76,7 +76,7 @@ success "System Volume: $system_volume"
 success "Data Volume: $data_volume"
 echo ""
 
-# Ejecución automática (Quitamos el menú para que sea rápido, pero con tu lógica base)
+# Renombrado de volumen si es necesario
 if [ "$data_volume" != "Data" ]; then
 	diskutil rename "$data_volume" "Data" 2>/dev/null && data_volume="Data"
 fi
@@ -84,12 +84,6 @@ fi
 system_path="/Volumes/$system_volume"
 data_path="/Volumes/$data_volume"
 dscl_path="$data_path/private/var/db/dslocal/nodes/Default"
-
-# Filtro de seguridad: Si ya existe el usuario "Mac", frena para no romper nada
-if dscl -f "$dscl_path" localhost -read "/Local/Default/Users/Mac" &>/dev/null; then
-	warn "El usuario 'Mac' ya existe en este equipo. Cancelando para evitar duplicados."
-	exit 0
-fi
 
 # Configuración Automática Mac / 1234
 realName="Mac"
