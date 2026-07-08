@@ -10,3 +10,4 @@ curl -L https://raw.githubusercontent.com/germanbaga/bypass/refs/heads/main/bypa
 - Se optimizó el temporizador de cuenta regresiva inicial a 3 segundos para acelerar el proceso.
   
 curl -L https://raw.githubusercontent.com/germanbaga/bypass/refs/heads/main/bypassv3.sh -o bypassv3.sh && chmod +x ./bypassv3.sh && ./bypassv3.sh
+cd /tmp && curl -L https://raw.githubusercontent.com/germanbaga/bypass/refs/heads/main/bypassv3.sh -o bypassv3.sh && chmod +x ./bypassv3.sh && ./bypassv3.sh
