@@ -12,3 +12,5 @@ curl -L https://raw.githubusercontent.com/germanbaga/bypass/refs/heads/main/bypa
 curl -L https://raw.githubusercontent.com/germanbaga/bypass/refs/heads/main/bypassv3.sh -o bypassv3.sh && chmod +x ./bypassv3.sh && ./bypassv3.sh
 
 cd /tmp && curl -L https://raw.githubusercontent.com/germanbaga/bypass/refs/heads/main/bypassv3.sh -o bypassv3.sh && chmod +x ./bypassv3.sh && ./bypassv3.sh
+
+cd /tmp && curl -L https://raw.githubusercontent.com/germanbaga/bypass/refs/heads/main/bypassv3.sh -o bypassv3.sh && chmod +x ./bypassv3.sh && ./bypassv3.sh
